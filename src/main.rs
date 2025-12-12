@@ -1,14 +1,31 @@
+use clap::Parser;
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::i64;
 use std::{thread, time::Duration};
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+
+struct Cli {
+    #[arg(short, long)]
+    url: Option<String>,
+
+    #[arg(short, long)]
+    port: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
+
     let client = Client::new();
-    const RPC_URL: &str = "https://polkadot-rpc.publicnode.com";
-    const RPC_PORT: &str = "";
+
+    let rpc_url = cli
+        .url
+        .unwrap_or_else(|| "https://polkadot-rpc.publicnode.com".to_string());
+    
+    let rpc_port = cli.port.unwrap_or_else(|| "".to_string());
 
     let payload = json!({
         "jsonrpc": "2.0",
@@ -17,7 +34,7 @@ async fn main() {
         "id": 1
     });
     loop {
-        let formatted_url = format!("{}{}", RPC_URL, RPC_PORT);
+        let formatted_url = format!("{}{}", rpc_url, rpc_port);
         let response = client
             .post(formatted_url)
             .header("Content-Type", "application/json")
@@ -52,6 +69,6 @@ async fn main() {
                 println!("Error getting response text: {}", error);
             }
         }
-        thread::sleep(Duration::from_millis(4000));
+        thread::sleep(Duration::from_millis(6000));
     }
 }

@@ -1,123 +1,127 @@
+use substratheus::constants::METRICS_PREFIX;
+use substratheus::helper::{initialize_metrics, rpc_manager};
+use substratheus::http::{handle_metrics, State};
+use substratheus::prometheus::Metrics;
+use substratheus::utils::{Args, Config};
+
+use async_ctrlc::CtrlC;
+use async_std::{sync::RwLock, task};
 use clap::Parser;
-use env_logger::Env;
-use log::{LevelFilter, error, info, warn};
-use reqwest::Client;
-use serde_json::{Value, json};
-use std::i64;
-use std::{thread, time::Duration};
+use prometheus_client::registry::Registry;
+use std::sync::Arc;
 
-mod models;
-use models::Metrics;
+#[async_std::main]
+async fn main() -> tide::Result<()> {
+    // parse CLI args
+    let args = Args::parse();
 
-mod http;
-use http::start_metrics_server;
+    // load config
+    let config = Config::load(&args.config).expect("Unable to parse config file!");
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[arg(short, long)]
-    url: Option<String>,
-    #[arg(short, long)]
-    port: Option<String>,
-    #[arg(short = 'm', long, default_value = "9090")]
-    metrics_port: u16,
-}
+    // initialize registry
+    let mut registry = Registry::default();
 
-#[tokio::main]
-async fn main() {
-    // Initialize logger
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .filter_module("warp", LevelFilter::Warn)
-        .init();
+    // register prometheus metrics
+    let metrics = Metrics::default();
+    registry.register(
+        format!("{METRICS_PREFIX}_era"),
+        "Current era",
+        metrics.era.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_active"),
+        "Whether the validator is in the active set",
+        metrics.active.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_era_points"),
+        "Era points earned since the current era started",
+        metrics.era_points.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_nominator_stake"),
+        "Total amount staked by nominators",
+        metrics.nominator_stake.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_nominator_count"),
+        "Total number of nominators",
+        metrics.nominator_count.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_minimum_active_stake"),
+        "The minimum active nominator stake of the last successful election",
+        metrics.minimum_active_stake.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_average_stake"),
+        "The average amount staked till the current era",
+        metrics.average_stake.clone(),
+    );
+    registry.register(
+        format!("{METRICS_PREFIX}_asset_hub_rpc_health"),
+        "Whether at least one RPC endpoint is healthy",
+        metrics.asset_hub_rpc_health.clone(),
+    );
+    let state = State {
+        config: Arc::new(config),
+        registry: Arc::new(registry),
+        metrics: Arc::new(metrics),
+        rpc: Arc::new(RwLock::new(None)),
+        shutdown: Arc::new(RwLock::new(false)),
+    };
+    task::spawn({
+        let state = state.clone();
+        async move {
+            CtrlC::new().expect("Error setting Ctrl-C handler").await;
 
-    let cli = Cli::parse();
-    let client = Client::new();
-    let metrics = std::sync::Arc::new(Metrics::new());
+            log::info!("Shutdown signal received");
 
-    let rpc_url = cli.url.unwrap_or_else(|| "".to_string());
-
-    let rpc_port = cli.port.unwrap_or_else(|| "".to_string());
-
-    info!("Starting Polkadot exporter service...");
-    info!("RPC URL: {}{}", rpc_url, rpc_port);
-    info!("Metrics port: {}", cli.metrics_port);
-
-    // Start metrics server in background
-    let metrics_clone = metrics.clone();
-    tokio::spawn(async move {
-        start_metrics_server(metrics_clone, cli.metrics_port).await;
+            *state.shutdown.write().await = true;
+            *state.rpc.write().await = None;
+        }
     });
 
-    let payload = json!({
-        "jsonrpc": "2.0",
-        "method": "chain_getHeader",
-        "params": [],
-        "id": 1
+    initialize_metrics(&state);
+
+    tide::log::start();
+
+    let mut app = tide::with_state(state.clone());
+
+    app.at("/metrics").get(handle_metrics);
+
+    task::spawn({
+        let host = args.host.clone();
+
+        let port = args.port;
+
+        async move {
+            app.listen(format!("{host}:{port}"))
+                .await
+                .expect("HTTP server failed");
+        }
     });
 
-    loop {
-        let formatted_url = format!("{}{}", rpc_url, rpc_port);
+    task::spawn(rpc_manager(state.clone()));
 
-        info!("Making RPC request to {}", formatted_url);
-        metrics.rpc_requests_total.inc();
+    // WORKERS
+    task::spawn(substratheus::workers::chain_metrics_worker(state.clone()));
 
-        let response = client
-            .post(formatted_url)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await;
-
-        let resp = match response {
-            Ok(resp) => resp,
-            Err(error) => {
-                metrics.rpc_errors_total.inc();
-                error!("HTTP request failed: {}", error);
-                return; // ← IMPORTANT
-            }
-        };
-
-        let response_text = resp.text().await;
-
-        let text = match response_text {
-            Ok(text) => text,
-            Err(error) => {
-                metrics.rpc_errors_total.inc();
-                error!("Error getting response text: {}", error);
-                return; // ← IMPORTANT
-            }
-        };
-        
-        let json = match serde_json::from_str::<Value>(&text) {
-            Ok(json) => json,
-            Err(e) => {
-                metrics.rpc_errors_total.inc();
-                error!("Failed to parse JSON: {}", e);
-                return; // ← IMPORTANT
-            }
-        };
-
-        let hex_str = match json["result"]["number"].as_str(){
-            Some(hex_str) => hex_str,
-            None => {
-                                metrics.rpc_errors_total.inc();
-                                warn!("Field 'number' doesn't exist in response");
-                                return ; // ← IMPORTANT
-            }
-        };
-
-        let height = match i64::from_str_radix(&hex_str[2..], 16) {
-            Ok(height) => height,
-            Err(e) => {
-                metrics.rpc_errors_total.inc();
-                error!("Failed to parse hex string '{}': {}", hex_str, e);
-                return; // ← IMPORTANT
-            }
-        };
-        metrics.block_height.set(height as f64);
-        info!("Block height updated: {}", height);
-        
-
-        thread::sleep(Duration::from_millis(6000));
+    for validator in state.config.validators.clone() {
+        task::spawn(substratheus::workers::validator_metrics_worker(
+            state.clone(),
+            validator,
+        ));
     }
+
+    // future::pending::<()>().await;
+    loop {
+        if *state.shutdown.read().await {
+            log::info!("Main loop exiting");
+            break;
+        }
+
+        task::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Ok(())
 }

@@ -1,0 +1,11 @@
+network: polkadot
+chain: polkadot
+rpc_url: ws://localhost:3000
+backup_rpc_url: wss://statemint.api.onfinality.io/public
+validators:
+  - name: example-validator-1
+    address: 1vTaLKEyj2Wn9xEkUGixBkVXJAd4pzDgXzz9CuVjhVqhHRQ
+  - name: example-validator-2
+    address: 16hWLHbxMwucyrzpWcEMGQtVzXY4rBtyYTRhPix5rJeeKT8N
+  - name: example-validator-3
+    address: 16SQ2fPAjhU6W7H22WWdSRrwyNSx6M51F3xC4GS5HW7w1AXF

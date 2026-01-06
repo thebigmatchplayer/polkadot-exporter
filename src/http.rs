@@ -1,22 +1,28 @@
-use warp::Filter;
-use log::{info};
+use async_std::sync::RwLock;
+use prometheus_client::encoding::text::encode;
+use prometheus_client::registry::Registry;
+use std::sync::Arc;
+use tide::{Request, Response};
 
-use crate::models::Metrics;
+use crate::prometheus::Metrics;
+use crate::substrate::SubstrateRPC;
+use crate::utils::Config;
 
-pub async fn start_metrics_server(metrics: std::sync::Arc<Metrics>, port: u16) {
-    let metrics_filter = warp::path("metrics")
-        .map(move || {
-            let metrics_string = metrics.get_metrics_string();
-            info!("Metrics endpoint accessed");
-            // println!("📊 Metrics endpoint accessed");
-            warp::reply::with_header(metrics_string, "content-type", "text/plain")
-        });
-    
-    //info!("Starting Prometheus metrics server on port {}", port);
-    info!("Access metrics over http://localhost:{}/metrics", port);
-    //println!("🚀 Starting Prometheus metrics server on port {}", port);
-    
-    warp::serve(metrics_filter)
-        .run(([0, 0, 0, 0], port))
-        .await;
+#[derive(Clone)]
+pub struct State {
+    pub config: Arc<Config>,
+    pub registry: Arc<Registry>,
+    pub metrics: Arc<Metrics>,
+    pub rpc: Arc<RwLock<Option<Arc<SubstrateRPC>>>>,
+    pub shutdown: Arc<RwLock<bool>>,
+}
+// fetch all metrics
+pub async fn handle_metrics(req: Request<State>) -> tide::Result {
+    let state = req.state();
+    let mut encoded = String::new();
+    encode(&mut encoded, &state.registry).map_err(|e| tide::Error::from_str(500, e.to_string()))?;
+    Ok(Response::builder(200)
+        .body(encoded)
+        .content_type(tide::http::mime::PLAIN)
+        .build())
 }

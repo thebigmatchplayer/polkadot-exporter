@@ -1,14 +1,22 @@
 [package]
-name = "polkadot-exporter"
-version = "0.1.0"
-edition = "2024"
+name = "substratheus"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.3", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
-serde_json = "1.0"
-clap = { version = "4.5.53", features = ["derive"] }
-prometheus = "0.13"
-warp = "0.3"
-log = "0.4"
-env_logger = "0.10"
+async-std = { version = "1.8.0", features = ["attributes", "tokio1"] }
+base58 = "0.2.0"
+blake2 = "0.10.6"
+clap = { version = "^4.5.4", features = ["derive"] }
+log = "0.4.21"
+prometheus-client = "0.22.2"
+scale-decode = "0.13.0"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_yaml = "0.9.34"
+subxt = "0.37.0"
+tide = "0.16.0"
+env_logger = "0.11"
+tokio = "1.49.0"
+async-ctrlc = "1"

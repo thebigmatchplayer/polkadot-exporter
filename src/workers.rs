@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use subxt::utils::AccountId32;
 
-const SCRAPE_INTERVAL: u64 = 15;
+const SCRAPE_INTERVAL: u64 = 1;
 
 async fn _wait_for_rpc(state: &State) -> Arc<crate::substrate::SubstrateRPC> {
     loop {
@@ -152,7 +152,7 @@ pub async fn validator_metrics_worker(state: State, validator: Validator) {
         let mut points = 0;
 
         if let Some(effective) = effective_era {
-            if let Some(points_era) = effective.checked_sub(1) {
+            if let Some(points_era) = effective.checked_sub(0) {
                 if let Some(map) = rpc.get_all_era_points(points_era).await {
                     if let Some((_, p)) = map.individual.iter().find(|(id, _)| id == &account_id) {
                         active = true;

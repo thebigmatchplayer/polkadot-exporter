@@ -1,14 +1,12 @@
+use crate::constants::Network;
+use crate::utils::serialize_address;
 use log::{info, warn};
 use subxt::{
     dynamic::{DecodedValueThunk, Value},
-    ext::scale_decode::DecodeAsType,
     storage::{DefaultAddress, StorageKey},
     utils::{AccountId32, Yes},
     OnlineClient, PolkadotConfig,
 };
-
-use crate::constants::Network;
-use crate::utils::serialize_address;
 
 // substrate rpc return types
 pub type Era = u32;
@@ -20,7 +18,7 @@ pub fn tokens_to_i64(tokens: Tokens) -> i64 {
     (tokens / 1e10 as i128) as i64
 }
 
-#[derive(Debug, DecodeAsType, Default)]
+#[derive(Debug, scale_decode::DecodeAsType, Default)]
 pub struct EraPointsMap {
     pub individual: Vec<(AccountId32, EraPoints)>,
 }
@@ -31,14 +29,14 @@ impl EraPointsMap {
     }
 }
 
-#[derive(Debug, Default, DecodeAsType)]
+#[derive(Debug, Default, scale_decode::DecodeAsType)]
 pub struct NominatorSummary {
     pub total: Tokens,
     pub nominator_count: u32,
 }
 
 //new stuff_________________________
-#[derive(Debug, DecodeAsType)]
+#[derive(Debug, scale_decode::DecodeAsType)]
 pub struct ActiveEraInfo {
     pub index: Era,
     pub start: Option<u64>,
